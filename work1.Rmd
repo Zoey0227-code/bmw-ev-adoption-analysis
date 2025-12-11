@@ -1,0 +1,356 @@
+---
+title: "BMW Must Re-Prioritize EV Investments as Asia Emerges as the Primary Driver
+  of Global EV Growth"
+author: "APAN 5800 – Group 8"
+date: "2025-12-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(plotly)
+library(crosstalk)
+library(DT)
+bmw <- read_csv("BMW sales data (2010-2024).csv")
+bmw <- bmw %>%
+  mutate(
+    Region = as.factor(Region),
+    Model  = as.factor(Model),
+    Fuel_Type = as.factor(Fuel_Type)
+  )
+#
+region_year <- bmw %>%
+  group_by(Region, Year) %>%
+  summarise(
+    avg_price   = mean(Price_USD, na.rm = TRUE),
+    total_sales = sum(Sales_Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+#
+model_region_raw <- bmw %>%
+  group_by(Region, Model) %>%
+  summarise(total_sales = sum(Sales_Volume), .groups = "drop")
+#
+model_fuel <- bmw %>%
+  group_by(Region, Model, Fuel_Type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Region, Model) %>%
+  slice_max(order_by = n, n = 1) %>% 
+  ungroup() %>%
+  select(Region, Model, Fuel_Type)
+#
+model_region <- model_region_raw %>%
+  left_join(model_fuel, by = c("Region", "Model")) %>%
+  group_by(Region) %>%
+  slice_max(order_by = total_sales, n = 10) %>%
+  ungroup()
+#
+sd_model_region <- SharedData$new(model_region, key = ~Region, group = "region")
+#
+fuel_region <- bmw %>%
+  group_by(Region, Fuel_Type) %>%
+  summarise(
+    n           = n(),
+    total_sales = sum(Sales_Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+#
+price_sensitivity <- bmw %>%
+  group_by(Region) %>%
+  summarise(
+    cor_price_sales = cor(Price_USD, Sales_Volume, method = "pearson"),
+    .groups = "drop"
+  )
+#
+sd_region_year   <- SharedData$new(region_year,   key = ~Region, group = "region")
+sd_model_region  <- SharedData$new(model_region,  key = ~Region, group = "region")
+sd_fuel_region   <- SharedData$new(fuel_region,   key = ~Region, group = "region")
+sd_bmw_scatter   <- SharedData$new(bmw,           key = ~Region, group = "region")
+#
+region_colors <- RColorBrewer::brewer.pal(6, "Set2")
+names(region_colors) <- levels(bmw$Region)
+```
+# Introduction
+
+This interactive report is designed for BMW’s **Chief Marketing Officer (CMO)**.  
+Using BMW’s worldwide sales records from **2010–2024**, the goal is to:
+
+1. Identify where global EV demand is accelerating or stagnating  
+2. Understand which models and fuel types drive growth in each region  
+3. Analyze regional EV readiness  
+4. Provide actionable guidance for BMW’s 2026 EV marketing and investment strategy
+
+---
+
+# Question 1 – Where Should BMW Expand EV Investments Across Regions?
+
+## Part A — Regional EV Sales Trends (2010–2024)
+
+The first chart compares **annual EV sales across six global regions**.  
+Each line shows the total sales volume for all BMW EV models in that region and year.
+
+### How to explore this chart
+
+- Hover over any point to see the region, year, and total sales  
+- Click a region in the legend to highlight it  
+- Double-click a region in the legend to isolate it  
+- Drag on the plot area to zoom into a specific time window; use the home icon to reset  
+
+### Why this matters for the CMO
+
+This view shows where EV demand is **gaining momentum** and where it is **stagnating**.  
+Regions with strong upward trends (for example, **Asia** or the **Middle East**) are candidates for **expansion** in 2026, while flat or declining regions suggest a strategy that **stabilizes or optimizes** existing investment.
+
+---
+
+```{r}
+p1 <- sd_region_year %>%
+plot_ly(
+x = ~Year,
+y = ~total_sales,
+color = ~Region,
+colors = region_colors,
+type = "scatter",
+mode = "lines+markers",
+hovertemplate = paste(
+"<b>%{customdata[1]}</b><br>",
+"Year: %{x}<br>",
+"Total sales: %{y}<extra></extra>"
+),
+customdata = ~Region
+) %>%
+layout(
+title = list(
+text = "Regional EV Sales Trends (2010–2024)",
+x = 0
+),
+xaxis = list(title = "Year"),
+yaxis = list(title = "Total EV Sales")
+)
+
+
+controls <- filter_select(
+id = "region_filter",
+label = "Focus on one region (controls linked charts below):",
+sharedData = sd_region_year,
+group = ~Region
+)
+
+bscols(widths = c(4, 8), controls, p1)
+```
+
+
+# Question 2 – Which Models Drive Growth in High-Potential Regions?
+
+## Part A — Top Models in Selected Region (Linked to Question 1)
+
+After focusing on a region using the selector above, the chart updates automatically to show that region’s **top 10 models** by total EV sales.
+
+### How to explore this chart
+
+- Use the **“Focus on one region”** control above Question 1  
+- Hover over any bar to see the exact model name and total sales  
+- Compare the shape of the model portfolio across different regions by switching the region filter  
+
+### Why this matters for the CMO
+
+Once high-growth regions are identified, the CMO needs to understand **which specific models are driving that growth**.  
+These are the models that may deserve:
+
+- More marketing budget  
+- Additional dealer support  
+- Region-specific campaigns or launch events  
+
+Models with low sales in high-growth regions may signal **positioning issues** or **gaps in awareness**.
+
+
+
+```{r}
+fuel_palette_hex <- c(
+  "Electric" = "#A8C5FF",  # pastel blue
+  "Hybrid"   = "#C8B0E8",  # pastel purple
+  "Petrol"   = "#B7E4C7",  # pastel green
+  "Diesel"   = "#FFE8A3"   # pastel yellow
+)
+
+p2 <- sd_model_region %>%
+  plot_ly(
+    x = ~total_sales,
+    y = ~reorder(Model, total_sales),
+    type = "bar",
+    orientation = "h",
+    color = ~Fuel_Type,
+    colors = fuel_palette_hex,
+    hovertemplate = "<b>%{y}</b><br>Fuel Type: %{color}<br>Total Sales: %{x:,}<extra></extra>"
+  ) %>%
+  
+  layout(
+    title = list(text = "Top 10 Models in Selected Region", x = 0),
+    xaxis = list(title = "Total Sales", tickformat = ","),
+    yaxis = list(title = "", tickfont = list(size = 14)),
+    plot_bgcolor = "#FFFFFF",
+    paper_bgcolor = "#FFFFFF",
+    margin = list(l = 120, r = 40)
+  )
+
+p2
+
+
+```
+# Question 3 – How Ready Is Each Region for EV Adoption? (Fuel-Type Mix)
+
+## Part A — Distribution of Fuel Types by Region
+
+This chart compares the **fuel-type mix** in each region: Electric, Hybrid, Petrol, and Diesel.  
+A region with a higher share of **Electric** and **Hybrid** vehicles is generally more ready for EV-focused campaigns and infrastructure partnerships.
+
+### How to explore this chart
+
+- Hover over each stacked bar to see the fuel type, count, and total sales  
+- Continue using the region selector above Question 1 to focus on a single region across all linked charts  
+- Compare regions to see where EV and Hybrid represent a substantial share  
+
+### Why this matters for the CMO
+
+Fuel-type composition is a strong indicator of **regional EV readiness**.  
+This chart therefore helps the CMO align:
+
+- Market education  
+- EV launches  
+- Infrastructure collaborations  
+
+with regional readiness.
+```{r}
+p3 <- sd_fuel_region %>%
+plot_ly(
+x = ~Region,
+y = ~n,
+color = ~Fuel_Type,
+type  = "bar",
+hovertemplate = paste(
+"<b>%{x}</b><br>",
+"Fuel type: %{legendgroup}<br>",
+"Vehicle count: %{y}<extra></extra>"
+)
+) %>%
+layout(
+barmode = "stack",
+title   = list(text = "Fuel-Type Mix by Region", x = 0),
+xaxis   = list(title = ""),
+yaxis   = list(title = "Number of Vehicles")
+)
+
+p3
+```
+# Question 4 – How Does EV Sales Intensity Vary Across Regions Over Time?
+
+## Part A — Regional EV Sales Heatmap (2010–2024)
+
+This heatmap visualizes BMW’s **EV sales intensity** across regions and years.  
+Darker colors represent higher total sales in a given region-year pair.
+
+### How to explore this chart
+
+- Hover over any cell to see the exact region, year, and total EV sales  
+- Focus on darker bands to identify high-momentum years  
+- Compare patterns across regions to detect acceleration or slowdown  
+
+### Why this matters for the CMO
+
+This view makes it easy to identify:
+
+- Regions that are consistently strong EV performers  
+- Regions with emerging EV momentum  
+- Key inflection points in EV adoption  
+- Where BMW should intensify marketing efforts in the 2026 cycle  
+
+Understanding temporal sales concentration helps the CMO allocate budgets to regions with **sustained or accelerating adoption**.
+
+
+```{r}
+# 自定义颜色渐变
+custom_palette <- list(
+  c(0, "#FFFFFF"),
+  c(0.25, "#E9F2FA"),
+  c(0.5, "#C4DDF2"),
+  c(0.75, "#8BBCE3"),
+  c(1, "#508ECF")
+)
+
+# 重建 region-year 数据（确保干净无 NA）
+region_year <- bmw %>%
+  group_by(Region, Year) %>%
+  summarise(total_sales = sum(Sales_Volume), .groups = "drop")
+
+# 创建交互式热力图
+p4 <- plot_ly(
+  data = region_year,
+  x = ~Year,
+  y = ~Region,
+  z = ~total_sales,
+  type = "heatmap",
+  colorscale = custom_palette,
+  hovertemplate = paste(
+    "<b>Region:</b> %{y}<br>",
+    "Year: %{x}<br>",
+    "Sales: %{z}<extra></extra>"
+  )
+) %>%
+  layout(
+    title = "BMW EV Sales Heatmap (Interactive)",
+    xaxis = list(title = "Year"),
+    yaxis = list(title = "Region")
+  )
+
+p4
+
+
+```
+Price–Sales Correlation by Region
+```{r}
+datatable(
+price_sensitivity %>%
+mutate(cor_price_sales = round(cor_price_sales, 4)),
+rownames = FALSE,
+options = list(dom = "t", pageLength = 6)
+)
+```
+# Executive Summary for the CMO
+
+BMW’s EV expansion strategy for 2026 must be guided by insights into:
+
+- Regional EV momentum  
+- Model-level performance  
+- Electrification readiness  
+- Temporal sales intensity  
+
+## Key Insights
+
+1. **EV Growth Is Uneven Across Regions**  
+   - Asia and the Middle East show strong upward momentum → expansion  
+   - Europe and North America are plateauing → stabilize  
+   - Africa and South America show intermittent growth → targeted investment  
+
+2. **Growth Is Driven by Region-Specific “Hero Models”**  
+   - Optimize marketing toward top-performing EV models  
+   - Strengthen dealer support and inventory for these models  
+
+3. **Fuel-Type Mix Reveals EV Readiness**  
+   - High EV/Hybrid share → ready for EV-centric campaigns  
+   - Petrol/Diesel-heavy markets need education & infrastructure  
+
+4. **Heatmap Highlights When and Where Momentum Occurs**  
+   - Identify consistent leaders and emerging opportunity windows  
+   - Time campaigns when momentum is strongest  
+
+## Call to Action
+
+Use these interactive insights to guide:
+
+- Regional budget allocation  
+- Model-specific marketing priorities  
+- Infrastructure collaboration planning  
+- Timing of EV campaigns for maximum ROI  
+
+---
