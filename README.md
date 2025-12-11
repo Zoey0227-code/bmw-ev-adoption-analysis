@@ -6,9 +6,8 @@ The report and dashboard were built in R, R Markdown, and Plotly, with both stat
 🚀 Interactive Dashboard
 
 👉 View the full interactive BMW EV Dashboard:
-(Replace the URL below with your GitHub Pages link after enabling Pages)
 
-https://zoey0227-code.github.io/bmw-ev-adoption-analysis/
+https://zoey0227-code.github.io/bmw-ev-adoption-analysis/bmw_ev_dashboard.html
 
 The dashboard includes:
 
